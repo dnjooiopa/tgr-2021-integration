@@ -16,7 +16,7 @@ args = parser.parse_args()
 
 MODEL_NAME = './Lime_TFLite_model'
 VIDEO_PATH = args.video
-min_conf_threshold = 0.8
+min_conf_threshold = 0.7
 
 pkg = importlib.util.find_spec('tflite_runtime')
 if pkg:
@@ -29,7 +29,7 @@ tflite_list = ['detect.tflite', 'detect_dynamic_range.tflite', 'detect_float16.t
 PATH_TO_CKPT = os.path.join(MODEL_NAME, tflite_list[0])
 
 # Path to label map file
-PATH_TO_LABELS = os.path.join(MODEL_NAME, 'labelname.txt')
+PATH_TO_LABELS = os.path.join(MODEL_NAME, 'labelmap.txt')
 
 # Load the label map
 labels = []
@@ -56,6 +56,7 @@ lime_count = 0
 marker_count = 0
 
 limes = []
+time_used_per_objects = []
 
 sqsize = 320
 imH, imW = sqsize, sqsize
@@ -111,6 +112,10 @@ def main():
     global marker_diameter_avg
     global lime_count
     global marker_count
+    global lime
+    global time_used_per_objects
+
+    start_exec_time = time.time()
 
     cap = cv2.VideoCapture(VIDEO_PATH)
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -138,13 +143,18 @@ def main():
         
         if count == 5:
             # Detecting objects
+            start = time.time()
             classes, boxes, scores = detect(frame)
+            end = time.time()
+            elapsed_time = end - start
             overlay_image(frame, classes, boxes, scores)
             
             for box in boxes:
                 xmin = int(box[1] * sqsize)
                 xmax = int(box[3] * sqsize)
-                diameter = ((box[3] - box[1]) + (box[2] - box[0])) * sqsize / 2
+                ymin = int(box[0] * sqsize)
+                ymax = int(box[2] * sqsize)
+                diameter = (xmax - xmin) + (ymax - ymin) / 2
 
                 if isEntry is False and xmin > xleft  and xmin < xright:
                     isEntry = True
@@ -157,11 +167,13 @@ def main():
                         lime_size = round(lime_size, 2)
                         limes.append(lime_size)
                         print("lime count:", lime_count, ", diameter size:", lime_size, "mm.")
+                        time_used_per_objects.append(elapsed_time)
                     if classes[0] == 1:
                         marker_count = marker_count + 1
                         marker_diameter_sum = marker_diameter_sum + diameter
                         marker_diameter_avg = marker_diameter_sum / marker_count
                         print("marker count:", marker_count)
+                        time_used_per_objects.append(elapsed_time)
 
                 if isEntry and xmax < xleft: # reset counter
                     isEntry = False 
@@ -178,6 +190,17 @@ def main():
             print("marker diameter avg", marker_diameter_avg)
     
     cap.release()
+    end_exec_time = time.time()
+    exec_time = round(end_exec_time - start_exec_time, 2)
+    avg_time_per_object = round(sum(time_used_per_objects) / len(time_used_per_objects), 2)
+    avg_lime_size = round(sum(limes) / len(limes), 2)
+    print("*************************")
+    print("Execution time:", exec_time, "seconds")
+    print("Lime counts:", lime_count)
+    print("Average lime size (diameter):", avg_lime_size,"mm")
+    print("Average execution time per object:", avg_time_per_object, "seconds")
+    print("*************************")
+
 
 
 main()
