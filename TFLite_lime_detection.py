@@ -49,10 +49,8 @@ floating_model = (input_details[0]['dtype'] == np.float32)
 input_mean = 127.5
 input_std = 127.5
 
-isEntry = False
-
-marker_radius_sum = 0
-marker_radius_avg = 0
+marker_diameter_sum = 0
+marker_diameter_avg = 0
 
 lime_count = 0
 marker_count = 0
@@ -61,13 +59,12 @@ limes = []
 
 sqsize = 320
 imH, imW = sqsize, sqsize
-margin = 45
-ptx = int(sqsize * 60/100)
+margin = 40
+ptx = int(sqsize * 50/100)
 pt1 = (( ptx - margin, 0 ), ( ptx - margin, int(sqsize) ))
 pt2 = (( ptx + margin, 0 ), ( ptx + margin, int(sqsize) ))
 
 def overlay_image(image, classes, boxes, scores):
-
     # red lines
     cv2.line(image, pt1[0], pt1[1], (0, 0, 255), 1)
     cv2.line(image, pt2[0], pt2[1], (0, 0, 255), 1)        
@@ -91,34 +88,6 @@ def overlay_image(image, classes, boxes, scores):
             cv2.rectangle(image, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED) # Draw white box to put label text in
             cv2.putText(image, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) # Draw label text
 
-
-    # for box in confirmed_boxes:
-    #     xmin = box[1]
-    #     xmax = box[3]
-    #     radius = (box[3] - box[1]) * 320
-
-    #     if isEntry is False and int(xmin * 320) > int(sqsize/2-margin) and int(xmin * 320):
-    #         isEntry = True
-                    
-    #     if isEntry and int(xmax * 320) > int(sqsize/2-margin) and int(xmax * 320) < int(sqsize/2+margin):
-    #         isEntry = False
-    #         print("Current Time:",time.asctime(time.localtime(time.time())))
-    #         if classes[0] == 0:
-    #             lime_count = lime_count + 1
-    #             lime_size = (radius / marker_radius_avg) * 40
-    #             lime_size = round(lime_size, 2)
-    #             limes.append(lime_size)
-    #             print("lime count:", lime_count, ", size:", lime_size, "mm.")
-    #         if classes[0] == 1:
-    #             marker_count = marker_count + 1
-    #             marker_radius_sum = marker_radius_sum + radius
-    #             marker_radius_avg = marker_radius_sum / marker_count
-    #             print("marker count:", marker_count)
-                    
-    #         if int(xmax * 320) < int(sqsize/2-margin): # reset counter
-    #             isEntry = False 
-
-
 def detect(image):
     input_data = np.expand_dims(image, axis=0)
     if floating_model:
@@ -129,7 +98,7 @@ def detect(image):
     interpreter.invoke()
     end_time = time.time()
     elapsed_time = round(end_time - start_time, 2)
-    print("Elapsed time:", elapsed_time, "seconds")
+    # print("Elapsed time:", elapsed_time, "seconds")
 
     boxes = interpreter.get_tensor(output_details[0]['index'])[0] # Bounding box coordinates of detected objects
     classes = interpreter.get_tensor(output_details[1]['index'])[0] # Class index of detected objects
@@ -137,9 +106,12 @@ def detect(image):
 
     return classes[scores > min_conf_threshold], boxes[scores > min_conf_threshold], scores[scores > min_conf_threshold]
 
-def count_object()
-
 def main():
+    global marker_diameter_sum
+    global marker_diameter_avg
+    global lime_count
+    global marker_count
+
     cap = cv2.VideoCapture(VIDEO_PATH)
     fps = cap.get(cv2.CAP_PROP_FPS)
     default_width = int( cap.get(cv2.CAP_PROP_FRAME_WIDTH) )
@@ -147,6 +119,8 @@ def main():
 
     new_width = sqsize
     new_height = int(default_height * (new_width / default_width))
+    xleft, xright = pt1[0][0], pt2[0][0]
+    isEntry = False
     count = 0
     while True:
         ret, raw_img = cap.read()
@@ -166,6 +140,32 @@ def main():
             # Detecting objects
             classes, boxes, scores = detect(frame)
             overlay_image(frame, classes, boxes, scores)
+            
+            for box in boxes:
+                xmin = int(box[1] * sqsize)
+                xmax = int(box[3] * sqsize)
+                diameter = ((box[3] - box[1]) + (box[2] - box[0])) * sqsize / 2
+
+                if isEntry is False and xmin > xleft  and xmin < xright:
+                    isEntry = True
+                            
+                if isEntry and xmin < xleft and xmax > xleft and xmax < xright:
+                    isEntry = False
+                    if classes[0] == 0:
+                        lime_count = lime_count + 1
+                        lime_size = (diameter / marker_diameter_avg) * 40
+                        lime_size = round(lime_size, 2)
+                        limes.append(lime_size)
+                        print("lime count:", lime_count, ", diameter size:", lime_size, "mm.")
+                    if classes[0] == 1:
+                        marker_count = marker_count + 1
+                        marker_diameter_sum = marker_diameter_sum + diameter
+                        marker_diameter_avg = marker_diameter_sum / marker_count
+                        print("marker count:", marker_count)
+
+                if isEntry and xmax < xleft: # reset counter
+                    isEntry = False 
+
             count = 0
             cv2.imshow('Preview', frame)
 
@@ -175,6 +175,7 @@ def main():
             break
         if key == 32: # For debugging
             print("***************************")
+            print("marker diameter avg", marker_diameter_avg)
     
     cap.release()
 
