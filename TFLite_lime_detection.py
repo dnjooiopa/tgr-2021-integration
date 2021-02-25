@@ -1,3 +1,6 @@
+
+# TGR-18 เพื่อนแบก
+
 import os
 import argparse
 import cv2
@@ -6,6 +9,10 @@ import sys
 import glob
 import importlib.util
 import time
+
+
+from WrapperAPI.mqtt.mqtt import Mqtt
+from WrapperAPI.rest.rest import REST
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--video', help='Path of video.',
@@ -58,6 +65,8 @@ marker_count = 0
 limes = []
 time_used_per_objects = []
 
+default_marker_diameter = 39.53
+
 sqsize = 320
 imH, imW = sqsize, sqsize
 margin = 40
@@ -66,7 +75,7 @@ pt1 = (( ptx - margin, 0 ), ( ptx - margin, int(sqsize) ))
 pt2 = (( ptx + margin, 0 ), ( ptx + margin, int(sqsize) ))
 
 def overlay_image(image, classes, boxes, scores):
-    # red lines
+    # red line
     cv2.line(image, pt1[0], pt1[1], (0, 0, 255), 1)
     cv2.line(image, pt2[0], pt2[1], (0, 0, 255), 1)        
 
@@ -107,15 +116,12 @@ def detect(image):
 
     return classes[scores > min_conf_threshold], boxes[scores > min_conf_threshold], scores[scores > min_conf_threshold]
 
-def main():
-    global marker_diameter_sum
-    global marker_diameter_avg
-    global lime_count
-    global marker_count
-    global lime
-    global time_used_per_objects
-
+if __name__ == "__main__":
+    print("\n---------------Initialize connection---------------------\n")
     start_exec_time = time.time()
+
+    mqtt = Mqtt()
+    api = REST()
 
     cap = cv2.VideoCapture(VIDEO_PATH)
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -127,6 +133,7 @@ def main():
     xleft, xright = pt1[0][0], pt2[0][0]
     isEntry = False
     count = 0
+    print("\n--------------------------------------\n")
     while True:
         ret, raw_img = cap.read()
         if not ret:
@@ -161,19 +168,45 @@ def main():
                             
                 if isEntry and xmin < xleft and xmax > xleft and xmax < xright:
                     isEntry = False
+
+                    type_send = "lime_normal"
+                    img_send = None
+                    object_size = default_marker_diameter
                     if classes[0] == 0:
                         lime_count = lime_count + 1
-                        lime_size = (diameter / marker_diameter_avg) * 40
+                        lime_size = (diameter / marker_diameter_avg) * default_marker_diameter
                         lime_size = round(lime_size, 2)
+                        object_size = lime_size
                         limes.append(lime_size)
-                        print("lime count:", lime_count, ", diameter size:", lime_size, "mm.")
+                    
+                        print("lime count: "  + str(lime_count) + ", diameter size: " + str(lime_size) + " mm.")
+                        if lime_size <= default_marker_diameter: # Detect small lime
+                            print("!This is a small lime.")
+                            print("--> Sending... MQTT signal to stm32")
+                            mqtt.toggle_led()
+                            print("--> Sending... image to server")
+                            type_send = "lime_small"
+                            img_send = frame
                         time_used_per_objects.append(elapsed_time)
+                        
                     if classes[0] == 1:
                         marker_count = marker_count + 1
                         marker_diameter_sum = marker_diameter_sum + diameter
                         marker_diameter_avg = marker_diameter_sum / marker_count
                         print("marker count:", marker_count)
+                        type_send = "pingpong"
                         time_used_per_objects.append(elapsed_time)
+
+                    # Send data to server
+                    status = api.send(type_send, object_size, img_send)
+                    if int(status) == 200:
+                        if type_send == "lime_small":
+                            print("Sent image to server")
+                        else:
+                            print("Sent data to server")
+                    else:
+                        print("Cannot send data to server")
+                    print("\n--------------------------------------\n")
 
                 if isEntry and xmax < xleft: # reset counter
                     isEntry = False 
@@ -194,13 +227,9 @@ def main():
     exec_time = round(end_exec_time - start_exec_time, 2)
     avg_time_per_object = round(sum(time_used_per_objects) / len(time_used_per_objects), 2)
     avg_lime_size = round(sum(limes) / len(limes), 2)
-    print("*************************")
+    print("**********************************")
     print("Execution time:", exec_time, "seconds")
     print("Lime counts:", lime_count)
     print("Average lime size (diameter):", avg_lime_size,"mm")
     print("Average execution time per object:", avg_time_per_object, "seconds")
-    print("*************************")
-
-
-
-main()
+    print("*********************************")

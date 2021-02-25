@@ -22,23 +22,12 @@ class Mqtt:
         self.client.subscribe(self.__SUB_TOPIC)
 
     def on_message(self, client, userdata, msg):
-        print("--> Mqtt on message")
+        #print("--> Mqtt on message")
+        return
 
     def loop_stop(self):
         self.client.loop_stop()
 
     def toggle_led(self):
         self.client.publish(self.__PUB_TOPIC, "toggle1")
-        print("--> Sent toggle LED1 successed")
-
-
-def main():
-    mqtt = Mqtt()
-    print("-->Initialed mqtt")
-    while True:
-        mqtt.toggle_led()
-        time.sleep(1)
-
-
-if __name__ == "__main__":
-    main()
+        print("Sent toggle LED1 successed")
